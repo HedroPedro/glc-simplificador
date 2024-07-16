@@ -26,6 +26,7 @@ fn get_build_rules(file_path : &str) -> HashMap<String, Vec<String>> {
 fn simplify_rules(build_rules : &HashMap<String, Vec<String>>) -> HashMap<String, Vec<String>> {   
     let simplified_rule = cut_useless_prods(build_rules);
     let chomsky_norm_rules = convert_rules_to_chomsky(&simplified_rule);
+    chomsky_norm_rules.iter().for_each(|x| println!("{} {:?}", x.0, x.1));
     return simplified_rule;
 }
 
@@ -226,7 +227,21 @@ fn convert_rules_to_chomsky(build_rules : &HashMap<String, Vec<String>>) -> Hash
             let vector : Vec<&str> = remove_first.split(&filtered_str).collect();
             let concat_string = format!("{}", vector[1]);
             if let Some(first_char) = concat_string.chars().next(){
-                let mut i = 0;
+                let mut i: usize = 0;
+                let mut new_key: String;
+                new_key = format!("{first_char}{i}");
+                while converted_rules.contains_key(&new_key) {
+                    new_key = format!("{first_char}{i}");
+                    i += 1;
+                }
+                converted_rules.insert(new_key.to_owned(), vec![concat_string.to_string()]);
+                for rule in converted_rules.iter_mut() {
+                    for x in rule.1.iter_mut() {
+                        if *rule.0 != new_key {
+                            *x = x.replace(&concat_string, &new_key);
+                        }
+                    }
+                }
             }
         }
     }
