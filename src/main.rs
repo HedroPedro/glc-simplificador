@@ -1,4 +1,4 @@
-use {regex::Regex, std::{collections::{HashMap, HashSet}, env, fs, string, vec}};
+use {core::slice, regex::Regex, std::{collections::{HashMap, HashSet}, env, fs, string, vec}};
 
 const VOID_VAL : &str = "&";
 
@@ -8,7 +8,7 @@ fn main() {
         panic!("Falta de argumentos"); 
     }
     let prod_rules = get_build_rules(&args[1]);
-    let simplified_rules = simplify_rules(&prod_rules);
+    let rules = simplify_rules(&prod_rules);
 }
 
 fn get_build_rules(file_path : &str) -> HashMap<String, Vec<String>> {
@@ -23,11 +23,13 @@ fn get_build_rules(file_path : &str) -> HashMap<String, Vec<String>> {
     return rules;
 }
 
-fn simplify_rules(build_rules : &HashMap<String, Vec<String>>) -> HashMap<String, Vec<String>> {   
+fn simplify_rules(build_rules : &HashMap<String, Vec<String>>) -> (HashMap<String, Vec<String>>,
+    HashMap<String, Vec<String>>, HashMap<String, Vec<String>>) {   
     let simplified_rule = cut_useless_prods(build_rules);
     let chomsky_norm_rules = convert_rules_to_chomsky(&simplified_rule);
+    let grebatch_norm_rules = convert_rules_to_grebatch(build_rules);
     chomsky_norm_rules.iter().for_each(|x| println!("{} {:?}", x.0, x.1));
-    return simplified_rule;
+    return (simplified_rule, chomsky_norm_rules, grebatch_norm_rules);
 }
 
 fn remove_void(build_rules : &HashMap<String, Vec<String>>) -> HashMap<String, Vec<String>> {
@@ -249,4 +251,52 @@ fn convert_rules_to_chomsky(build_rules : &HashMap<String, Vec<String>>) -> Hash
     return converted_rules;
 }
 
-//fn convert_rules_to_grebatch(){}
+fn remove_left_recur(build_rules : &HashMap<String, Vec<String>>) -> HashMap<String, Vec<String>> {
+    let mut new_build_rules = HashMap::<String, Vec<String>>::new();
+    let mut visited_hash_set = HashSet::<String>::new();
+    let mut keys_to_go = Vec::<String>::new();
+    let filter = regex::Regex::new(r"[A-Z][0-9]*").unwrap();
+    let mut prefix = String::from("S");
+    let mut index = 1;
+    let mut i : usize = 0;
+    visited_hash_set.insert(prefix.to_string());
+
+    for (key, vector) in build_rules.iter() {
+        let mut update_vec = Vec::<String>::new();
+        for string in vector.iter() {
+            let new_string = string.replace("S", "S0");
+            update_vec.push(new_string);
+            if key == "S" {
+                let captures = filter.captures(&string).unwrap();
+                for i in 1..captures.len() {
+                    let value = captures[i].to_string();
+                    if !keys_to_go.contains(&value) {
+                        keys_to_go.push(value);
+                    }
+                }
+            }
+        }
+
+        if key == "S" {
+            new_build_rules.insert("S0".to_string(), update_vec);
+        } else {
+            new_build_rules.insert(key.to_string(), update_vec);
+        }
+    }
+
+    loop {
+        if i == keys_to_go.len(){
+            break;
+        }
+
+        i += 1;
+    }
+
+    return new_build_rules;
+}
+
+fn convert_rules_to_grebatch(build_rules : &HashMap<String, Vec<String>>) -> HashMap<String, Vec<String>>{
+    let coverted_rules = remove_left_recur(&build_rules);
+
+    return  coverted_rules;
+}
