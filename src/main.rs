@@ -1,4 +1,4 @@
-use {core::slice, regex::Regex, std::{collections::{HashMap, HashSet}, env, fs, string, vec}};
+use {regex::Regex, std::{collections::{HashMap, HashSet, VecDeque}, env, fs::{self}}};
 
 const VOID_VAL : &str = "&";
 
@@ -254,12 +254,10 @@ fn convert_rules_to_chomsky(build_rules : &HashMap<String, Vec<String>>) -> Hash
 fn remove_left_recur(build_rules : &HashMap<String, Vec<String>>) -> HashMap<String, Vec<String>> {
     let mut new_build_rules = HashMap::<String, Vec<String>>::new();
     let mut visited_hash_set = HashSet::<String>::new();
-    let mut keys_to_go = Vec::<String>::new();
+    let mut keys_to_go = VecDeque::<String>::new();
     let filter = regex::Regex::new(r"[A-Z][0-9]*").unwrap();
-    let mut prefix = String::from("S");
     let mut index = 1;
-    let mut i : usize = 0;
-    visited_hash_set.insert(prefix.to_string());
+    visited_hash_set.insert("S".to_string());
 
     for (key, vector) in build_rules.iter() {
         let mut update_vec = Vec::<String>::new();
@@ -271,7 +269,7 @@ fn remove_left_recur(build_rules : &HashMap<String, Vec<String>>) -> HashMap<Str
                 for i in 1..captures.len() {
                     let value = captures[i].to_string();
                     if !keys_to_go.contains(&value) {
-                        keys_to_go.push(value);
+                        keys_to_go.push_front(value);
                     }
                 }
             }
@@ -279,17 +277,33 @@ fn remove_left_recur(build_rules : &HashMap<String, Vec<String>>) -> HashMap<Str
 
         if key == "S" {
             new_build_rules.insert("S0".to_string(), update_vec);
+            visited_hash_set.insert("S0".to_string());
         } else {
             new_build_rules.insert(key.to_string(), update_vec);
         }
     }
 
-    loop {
-        if i == keys_to_go.len(){
-            break;
+    while !keys_to_go.is_empty() {
+        let key = keys_to_go.pop_back().unwrap();
+        visited_hash_set.insert(key.clone());
+        let vector = build_rules.get(&key).unwrap().to_vec();
+        for string in vector.iter().filter(|p| filter.is_match(&p)) {
+            let captures = filter.captures(&string).unwrap();
+            for i in 1..captures.len() {
+                if !visited_hash_set.contains(&captures[i].to_string()){
+                    let new_key = format!("S{index}");
+                    visited_hash_set.insert(new_key.to_string());
+                    visited_hash_set.insert(key.to_string());
+                    let re = regex::Regex::new(&format!(r"{}", captures[i].to_string()).as_str()).unwrap();
+                    for (key, vals) in new_build_rules.iter_mut() {
+                        for string in vals.iter_mut() {
+                            re.replace_all(&captures[i], new_key.to_string());
+                        }
+                    }
+                    index+=1;
+                }
+            }
         }
-
-        i += 1;
     }
 
     return new_build_rules;
