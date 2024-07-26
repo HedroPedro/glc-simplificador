@@ -1,4 +1,4 @@
-use {regex::{CaptureMatches, Regex}, std::{collections::{HashMap, HashSet, VecDeque}, env, fmt::format, fs::{self}}};
+use {regex::{CaptureMatches, Regex}, std::{collections::{HashMap, HashSet, VecDeque}, env, fmt::format, fs::{self}, mem::replace, vec}};
 
 const VOID_VAL : &str = "&";
 
@@ -24,8 +24,7 @@ fn get_build_rules(file_path : &str) -> HashMap<String, Vec<String>> {
     return rules;
 }
 
-fn simplify_rules(build_rules : &HashMap<String, Vec<String>>) -> (HashMap<String, Vec<String>>,
-    HashMap<String, Vec<String>>, HashMap<String, Vec<String>>) {   
+fn simplify_rules(build_rules : &HashMap<String, Vec<String>>) -> (HashMap<String, Vec<String>>, HashMap<String, Vec<String>>, HashMap<String, Vec<String>>) {   
     let simplified_rule = cut_useless_prods(build_rules);
     let chomsky_norm_rules = convert_rules_to_chomsky(&simplified_rule);
     let grebatch_norm_rules = convert_rules_to_grebatch(&simplified_rule);
@@ -258,7 +257,7 @@ fn remove_left_recur(build_rules : &HashMap<String, Vec<String>>) -> HashMap<Str
     let filter = regex::Regex::new(r"([A-Z][0-9]*)").unwrap();
     let mut index = 1;
     visited_hash_set.insert("S".to_string());
-
+    
     for (key, vector) in build_rules.iter() {
         let mut update_vec = Vec::<String>::new();
         if key == "S" {
@@ -286,13 +285,12 @@ fn remove_left_recur(build_rules : &HashMap<String, Vec<String>>) -> HashMap<Str
         }
     } 
     new_build_rules.remove(&"S".to_string());
-
+    
     while !keys_to_go.is_empty() {
         let key = keys_to_go.pop_back().unwrap();
         let new_key = format!("S{index}");
-        visited_hash_set.insert(new_key.clone());
-        visited_hash_set.insert(key.to_string());
         let mut tmp = Vec::<String>::new();
+        visited_hash_set.insert(new_key.to_string());
         if let Some(vector) = new_build_rules.remove(&key) {
             tmp = vector.to_vec();
             for string in vector {
@@ -300,7 +298,6 @@ fn remove_left_recur(build_rules : &HashMap<String, Vec<String>>) -> HashMap<Str
                     for i in 1..capture.len() {
                         let key = capture.get(i).map_or("", |x| x.as_str());
                         if key != "" && !visited_hash_set.contains(&key.to_string()) {
-                            println!("{:?} {key}", visited_hash_set);
                             keys_to_go.push_front(key.to_string());
                         }
                     }
@@ -319,14 +316,17 @@ fn remove_left_recur(build_rules : &HashMap<String, Vec<String>>) -> HashMap<Str
                 new_build_rules.insert(_key, update_vec);
             }
         }
+        visited_hash_set.insert(key.to_string());
 
         new_build_rules.insert(new_key, tmp);
         index += 1;
     }
 
-    for (key, vector) in new_build_rules.iter_mut() {
-        let key_vec : Vec<&str> = key.split("S").collect();
-        let key_num = key_vec[1].to_string().parse::<u32>().unwrap();
+    let copy_rules = new_build_rules.clone();
+
+    for (key, vector) in copy_rules.iter() {
+        let key_vec: Vec<&str> = key.split("S").collect();
+        let key_num: i32 = key_vec[1].to_string().parse().unwrap();
         for string in vector.into_iter() {
             if let Some(capture) = filter.captures(&string) {
                 if capture.len() == 1 {
@@ -335,10 +335,39 @@ fn remove_left_recur(build_rules : &HashMap<String, Vec<String>>) -> HashMap<Str
 
                 let first_val = capture.get(1).map_or("", |x| x.as_str());
                 let vec_split : Vec<&str> = first_val.split("S").collect();
-                let number = vec_split[1].to_string().parse::<u32>().unwrap();
+                let mut num: i32 = 0;
 
-                if number > key_num {
-                    
+                for str_to_convert in vec_split {
+                    if str_to_convert != "" {
+                        num = str_to_convert.parse().map_or(-1, |x| x);
+                    }
+                    if num == -1 {
+                        break;
+                    }
+                }
+
+                if num == -1 {
+                    break;
+                }
+                
+                if key_num < num {
+                   if let Some(val_vect) =  copy_rules.get(first_val){
+                       if let Some(vector_to_change) = new_build_rules.get_mut(key){
+                            let mut vector_with_update = Vec::<String>::new();
+                            for string_to_change in vector_to_change.iter().filter(|x| x.contains(first_val) && filter.captures_iter(x).count() > 1) {
+                                for replacer in val_vect {
+                                    let new_string = string_to_change.replace(first_val, replacer);
+                                    vector_with_update.push(new_string);
+                                }
+                            }
+                            if let Some(index) = vector_to_change.iter().position(|x| x == string) {
+                                if !vector_with_update.is_empty() {
+                                    vector_to_change.remove(index);
+                                    vector_to_change.append(&mut vector_with_update);
+                                }
+                            }
+                        }
+                   }
                 }
             }
         }
@@ -348,6 +377,42 @@ fn remove_left_recur(build_rules : &HashMap<String, Vec<String>>) -> HashMap<Str
 }
 
 fn convert_rules_to_grebatch(build_rules : &HashMap<String, Vec<String>>) -> HashMap<String, Vec<String>>{
-    let coverted_rules = remove_left_recur(&build_rules);
-    return  coverted_rules;
+    let filter = regex::Regex::new(r"([A-Z][0-9]*)").unwrap();
+    let mut converted_rules = remove_left_recur(&build_rules);
+    *converted_rules.get_mut("S0").unwrap() = converted_rules.get_mut("S0").unwrap().iter().filter(|x| **x != "&").map(|x| x.to_string()).collect();
+    let mut keys : Vec<String> = converted_rules.keys().into_iter().map(|x| x.to_string()).collect();
+    let mut index = 0;
+
+    let mut tmp_rule = converted_rules.to_owned();
+
+    loop {
+        if keys.is_empty() {
+            break;
+        }
+        let key = keys.pop().unwrap();
+        let new_key = format!("B{index}");
+        let vector = tmp_rule.get(&key).unwrap();
+        for string in vector.iter().filter(|x| x.len() > 1){
+            let str_len = string.len();
+            if let Some(capture) = filter.captures(&string) {
+                if (str_len - (capture.len()-1)) < 1 {
+                    continue;
+                }
+            }
+            let (_ini, resto) = string.split_at(1);
+            for (_key, val) in converted_rules.iter_mut() {
+                for string in val.iter_mut().filter(|x| x.contains(resto)) {
+                    *string = string.replace(resto, &new_key);
+                }
+            }
+            converted_rules.insert(new_key.to_string(), vec![resto.to_string()]);
+            keys.push(new_key.to_string());
+        }
+        println!("{:?}", vector);
+        tmp_rule = converted_rules.to_owned();
+        index += 1;
+    }
+
+    converted_rules.iter().for_each(|x| println!("{} {:?}", x.0, x.1));
+    return converted_rules;
 }
