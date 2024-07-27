@@ -28,6 +28,7 @@ fn simplify_rules(build_rules : &HashMap<String, Vec<String>>) -> (HashMap<Strin
     let simplified_rule = cut_useless_prods(build_rules);
     let chomsky_norm_rules = convert_rules_to_chomsky(&simplified_rule);
     let grebatch_norm_rules = convert_rules_to_grebatch(&simplified_rule);
+    let derterministica_rules = make_left_recur_rules(&build_rules);
     return (simplified_rule, chomsky_norm_rules, grebatch_norm_rules);
 }
 
@@ -321,7 +322,6 @@ fn remove_left_recur(build_rules : &HashMap<String, Vec<String>>) -> HashMap<Str
         new_build_rules.insert(new_key, tmp);
         index += 1;
     }
-
     let copy_rules = new_build_rules.clone();
 
     for (key, vector) in copy_rules.iter() {
@@ -350,7 +350,7 @@ fn remove_left_recur(build_rules : &HashMap<String, Vec<String>>) -> HashMap<Str
                     break;
                 }
                 
-                if key_num < num {
+                if key_num > num {
                    if let Some(val_vect) =  copy_rules.get(first_val){
                        if let Some(vector_to_change) = new_build_rules.get_mut(key){
                             let mut vector_with_update = Vec::<String>::new();
@@ -371,7 +371,7 @@ fn remove_left_recur(build_rules : &HashMap<String, Vec<String>>) -> HashMap<Str
                 }
             }
         }
-    } 
+    }
     
     return new_build_rules;
 }
@@ -400,7 +400,7 @@ fn convert_rules_to_grebatch(build_rules : &HashMap<String, Vec<String>>) -> Has
                 }
             }
             let (_ini, resto) = string.split_at(1);
-            for (_key, val) in converted_rules.iter_mut() {
+            for val in converted_rules.values_mut() {
                 for string in val.iter_mut().filter(|x| x.contains(resto)) {
                     *string = string.replace(resto, &new_key);
                 }
@@ -408,11 +408,39 @@ fn convert_rules_to_grebatch(build_rules : &HashMap<String, Vec<String>>) -> Has
             converted_rules.insert(new_key.to_string(), vec![resto.to_string()]);
             keys.push(new_key.to_string());
         }
-        println!("{:?}", vector);
-        tmp_rule = converted_rules.to_owned();
+        converted_rules.clone_into(&mut tmp_rule);
         index += 1;
     }
 
-    converted_rules.iter().for_each(|x| println!("{} {:?}", x.0, x.1));
     return converted_rules;
+}
+
+fn make_left_recur_rules(build_rules : &HashMap<String, Vec<String>>) -> HashMap<String, Vec<String>> {
+    let re = regex::Regex::new(r"[a-z]").unwrap();
+    let capture = regex::Regex::new(r"([A-Z][0-9]*')");
+    let mut new_prod_rules = build_rules.to_owned();
+    let mut terminals = HashSet::<String>::new();
+    for vetor in new_prod_rules.values() {
+        for string in vetor.iter().filter(|x| re.is_match(&x)) {
+            for char_str in string.chars() {
+                if re.is_match(&char_str.to_string()) {
+                    terminals.insert(char_str.to_string());
+                }
+            }
+        }
+    }
+    
+    for terminal in terminals.iter() {
+        for (key, vector) in new_prod_rules.iter_mut() {
+            let mut new_key = format!("{key}'");
+            for string in vector.iter_mut() {
+                let vec_split = string.split_at(1);
+                if vec_split.0 == terminal {
+                    
+                }
+            }
+        }
+    }
+
+    return new_prod_rules;
 }
