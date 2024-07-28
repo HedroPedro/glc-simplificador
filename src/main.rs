@@ -1,4 +1,5 @@
-use {regex::{CaptureMatches, Regex}, std::{collections::{HashMap, HashSet, VecDeque}, env, fmt::format, fs::{self}, mem::replace, vec}};
+use {regex::Regex, std::{collections::{HashMap, HashSet, VecDeque}, env, fs::{self}
+, io::*}};
 
 const VOID_VAL : &str = "&";
 
@@ -8,8 +9,13 @@ fn main() {
     if args.len() < 2{
         panic!("Falta de argumentos"); 
     }
+    let title_vector = vec!["simplified", "chomsky", "grebatch", "left_factor"];
     let prod_rules = get_build_rules(&args[1]);
     let rules = simplify_rules(&prod_rules);
+    write_to_file_build_rule(&rules.0, title_vector[0]);
+    write_to_file_build_rule(&rules.1, title_vector[1]);
+    write_to_file_build_rule(&rules.2, title_vector[2]);
+    write_to_file_build_rule(&rules.3, title_vector[3]);
 }
 
 fn get_build_rules(file_path : &str) -> HashMap<String, Vec<String>> {
@@ -24,12 +30,13 @@ fn get_build_rules(file_path : &str) -> HashMap<String, Vec<String>> {
     return rules;
 }
 
-fn simplify_rules(build_rules : &HashMap<String, Vec<String>>) -> (HashMap<String, Vec<String>>, HashMap<String, Vec<String>>, HashMap<String, Vec<String>>) {   
-    let simplified_rule = cut_useless_prods(build_rules);
-    let chomsky_norm_rules = convert_rules_to_chomsky(&simplified_rule);
-    let grebatch_norm_rules = convert_rules_to_grebatch(&simplified_rule);
-    let derterministica_rules = make_left_recur_rules(&build_rules);
-    return (simplified_rule, chomsky_norm_rules, grebatch_norm_rules);
+fn simplify_rules(build_rules : &HashMap<String, Vec<String>>) -> (HashMap<String, Vec<String>>, HashMap<String, Vec<String>>, HashMap<String, Vec<String>>,  HashMap<String, Vec<String>>) {   
+    let simplified_rules = cut_useless_prods(build_rules);
+    let chomsky_norm_rules = convert_rules_to_chomsky(&simplified_rules);
+    let grebatch_norm_rules = convert_rules_to_grebatch(&simplified_rules);
+    let deterministic_rules = make_left_fat_rules(&simplified_rules);
+    deterministic_rules.iter().for_each(|x| println!("{} {:?}", x.0, x.1));
+    return (simplified_rules, chomsky_norm_rules, grebatch_norm_rules, deterministic_rules);
 }
 
 fn remove_void(build_rules : &HashMap<String, Vec<String>>) -> HashMap<String, Vec<String>> {
@@ -226,8 +233,11 @@ fn convert_rules_to_chomsky(build_rules : &HashMap<String, Vec<String>>) -> Hash
             if slices.len() < 3 {
                 continue;
             }
-            let vector : Vec<&str> = remove_first.split(&filtered_str).collect();
-            let concat_string = format!("{}", vector[1]);
+            let vetor : Vec<&str> = remove_first.split(&filtered_str).collect();
+            if vetor.len() == 1 {
+                continue;
+            }
+            let concat_string = format!("{}", vetor[1]);
             if let Some(first_char) = concat_string.chars().next(){
                 let mut i: usize = 0;
                 let mut new_key: String;
@@ -415,32 +425,68 @@ fn convert_rules_to_grebatch(build_rules : &HashMap<String, Vec<String>>) -> Has
     return converted_rules;
 }
 
-fn make_left_recur_rules(build_rules : &HashMap<String, Vec<String>>) -> HashMap<String, Vec<String>> {
-    let re = regex::Regex::new(r"[a-z]").unwrap();
-    let capture = regex::Regex::new(r"([A-Z][0-9]*')");
-    let mut new_prod_rules = build_rules.to_owned();
+fn make_left_fat_rules(build_rules : &HashMap<String, Vec<String>>) -> HashMap<String, Vec<String>> {
+    let re = regex::Regex::new(r"([A-Z][0-9]*)").unwrap();
+    let terminal_regex = regex::Regex::new(r"[a-z]").unwrap();
     let mut terminals = HashSet::<String>::new();
+    let mut new_prod_rules = build_rules.to_owned();
+    let mut index = 0;
+    let mut dont_go_set = HashSet::<String>::new();
+    let mut prod_to_add_later = HashMap::<String, Vec<String>>::new();
+
     for vetor in new_prod_rules.values() {
-        for string in vetor.iter().filter(|x| re.is_match(&x)) {
-            for char_str in string.chars() {
-                if re.is_match(&char_str.to_string()) {
-                    terminals.insert(char_str.to_string());
+        for chars in vetor.iter().filter(|x| terminal_regex.is_match(&x)) {
+            for str_char in chars.chars() {
+                if str_char.is_ascii_lowercase() {
+                    terminals.insert(str_char.to_string());
                 }
-            }
-        }
-    }
-    
-    for terminal in terminals.iter() {
-        for (key, vector) in new_prod_rules.iter_mut() {
-            let mut new_key = format!("{key}'");
-            for string in vector.iter_mut() {
-                let vec_split = string.split_at(1);
-                if vec_split.0 == terminal {
-                    
-                }
-            }
+            } 
         }
     }
 
+    for terminal in terminals {
+        index = 0;
+        for (key, vetor) in new_prod_rules.iter_mut() {
+            let new_key = format!("{key}{index}'"); 
+            let mut new_vec = Vec::<String>::new();
+            for string in vetor.iter_mut().filter(|x| x.len() > 1) {
+                let split = string.to_owned();
+                let (ini, resto) = split.split_at(1);
+                if let Some(capture) = re.captures(resto){
+                    if ini != terminal || capture.len()-1 == resto.len()-1 {
+                        continue;
+                    }
+                    let new_str = string.replace(resto, &new_key);
+                    *string = new_str;
+                    new_vec.push(resto.to_string());
+                }
+            }
+            let copy_key = new_key.to_owned();
+            dont_go_set.insert(new_key);
+            prod_to_add_later.insert(copy_key, new_vec.to_vec());
+            index+=1;
+        }
+    } 
+
+    prod_to_add_later.into_iter().for_each(|x| {
+        if !x.1.is_empty() {
+            new_prod_rules.insert(x.0, x.1);
+        }
+    });
+
     return new_prod_rules;
+}
+
+fn write_to_file_build_rule(build_rules : &HashMap<String, Vec<String>>, title_file : &str) {
+    let mut file =  fs::File::create(format!("{title_file}.glc")).unwrap();
+    for (key, vector) in build_rules.iter() {
+        let _ = file.write_all(format!("{key}-> ").as_bytes());
+        for i in 0..vector.len() {
+            if i == vector.len()-1 {
+                let _ = file.write_all(format!("{}\n", vector[i]).as_bytes());
+            } else {
+                let _ = file.write_all(format!("{}| ", vector[i]).as_bytes());
+            }
+        }
+    }
 }

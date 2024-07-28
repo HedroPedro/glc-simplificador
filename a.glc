@@ -1,3 +1,3 @@
 A->a|b|C
-S->A|bAa|&
+S->A|bAa|&|aA|aB
 C->&|C|d
